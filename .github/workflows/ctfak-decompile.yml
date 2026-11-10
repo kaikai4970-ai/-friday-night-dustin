@@ -1,5 +1,8 @@
-name: inspect-fusion-exe
+name: ctfak-decompile
 on:
+  push:
+    paths:
+      - ".github/workflows/ctfak-decompile.yml"
   workflow_dispatch:
     inputs:
       exe_url:
@@ -8,7 +11,8 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -L -o game.exe "${{ inputs.exe_url }}"
+      - name: download
+        run: curl -L -o game.exe "${{ inputs.exe_url || 'https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe' }}"
       - name: inspect
         shell: python
         run: |
@@ -16,7 +20,6 @@ jobs:
           d = open("game.exe", "rb").read()
           print("size:", len(d))
 
-          # PEセクション一覧
           pe = struct.unpack_from("<I", d, 0x3C)[0]
           nsec = struct.unpack_from("<H", d, pe + 6)[0]
           optsz = struct.unpack_from("<H", d, pe + 20)[0]
@@ -28,25 +31,16 @@ jobs:
               end = max(end, ro + rs)
           print("PE end (overlay start):", hex(end), "overlay size:", len(d) - end)
 
-          # PAME / PAMU の位置と周辺
           for sig in (b"PAME", b"PAMU", b"CRUF"):
               pos = [m.start() for m in re.finditer(sig, d)]
               print(sig.decode(), "count", len(pos), "first", [hex(p) for p in pos[:5]])
 
-          # オーバーレイ先頭のダンプ
           print("overlay head:", d[end:end + 64].hex(" "))
 
-          # PAME ヘッダー (最初のPAME)
           p = d.find(b"PAME")
           if p >= 0:
               print("PAME head:", d[p:p + 32].hex(" "))
-              rt, build = struct.unpack_from("<HH", d, p + 8) if p + 12 <= len(d) else (0, 0)
-              print("PAME fields:", rt, build)
-
-          # チャンクヘッダーを順にたどる (id:2, flag:2, size:4)
-          q = d.find(b"PAME")
-          if q >= 0:
-              q += 12  # PAME(4) + runtime ver(2) + build(?)... 目安
+              q = p + 12
               print("--- chunk walk (best effort) ---")
               for _ in range(40):
                   if q + 8 > len(d): break
