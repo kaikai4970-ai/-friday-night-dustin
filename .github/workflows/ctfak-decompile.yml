@@ -1,0 +1,49 @@
+name: ctfak-decompile
+on:
+  workflow_dispatch:
+    inputs:
+      tool_index:
+        description: "CTFAK tool number (0 = list tools and exit)"
+        default: "0"
+      exe_url:
+        default: "https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe"
+jobs:
+  run:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: clone
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak
+      - name: build
+        shell: pwsh
+        run: |
+          cd ctfak
+          dotnet build Interface/CTFAK.Cli/CTFAK.Cli.csproj -c Release -p:EnableWindowsTargeting=true
+          Get-ChildItem Plugins -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName -c Release -p:EnableWindowsTargeting=true }
+      - name: stage
+        shell: pwsh
+        run: |
+          $out = (Get-ChildItem ctfak/Interface/CTFAK.Cli/bin -Recurse -Filter CTFAK.Cli.exe | Select-Object -First 1).DirectoryName
+          "OUT=$out" | Out-File -Append $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force "$out/Plugins" | Out-Null
+          Get-ChildItem ctfak/Plugins -Recurse -Include Dumper.dll,CTFAK.Decompiler.dll | Where-Object { $_.FullName -match "Release" } | Copy-Item -Destination "$out/Plugins" -Force
+          $t = Get-ChildItem ctfak -Recurse -Filter template.mfa | Select-Object -First 1
+          if ($t) { Copy-Item $t.FullName "$out/template.mfa" -Force }
+          Invoke-WebRequest "${{ inputs.exe_url }}" -OutFile "$out/game.exe"
+      - name: run
+        shell: pwsh
+        run: |
+          cd $env:OUT
+          "${{ inputs.tool_index }}" | .\CTFAK.Cli.exe -path game.exe -parameters "" 2>&1 | Tee-Object run.log
+          "0" | Out-Null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctfak-output
+          path: |
+            ${{ env.OUT }}/Dumps/**
+            ${{ env.OUT }}/*.mfa
+            ${{ env.OUT }}/run.log
