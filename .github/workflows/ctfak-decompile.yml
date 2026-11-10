@@ -25,16 +25,18 @@ jobs:
       - name: patch (console-less CI)
         shell: pwsh
         run: |
-          $prog = "ctfak/Interface/CTFAK.Cli/Program.cs"
-          (Get-Content $prog -Raw) -replace 'ASCIIArt\.DrawArt2\(\)\s*;', 'try { ASCIIArt.DrawArt2(); } catch { }' | Set-Content $prog
-
-          $art = "ctfak/Interface/CTFAK.Cli/ASCIIArt.cs"
-          $c = Get-Content $art -Raw
-          $c = $c -replace 'Console\.WindowWidth',  '(Console.IsOutputRedirected || Console.IsInputRedirected ? 120 : Console.WindowWidth)'
-          $c = $c -replace 'Console\.WindowHeight', '(Console.IsOutputRedirected || Console.IsInputRedirected ? 30 : Console.WindowHeight)'
-          $c | Set-Content $art
-
-          Select-String -Path $prog -Pattern 'DrawArt2'
+          # CLI配下の全 .cs でコンソール系の例外を握りつぶす
+          Get-ChildItem ctfak/Interface/CTFAK.Cli -Recurse -Filter *.cs | ForEach-Object {
+            $c = Get-Content $_.FullName -Raw
+            $o = $c
+            $c = $c -replace 'ASCIIArt\.DrawArt2\(\)\s*;', 'try { ASCIIArt.DrawArt2(); } catch { }'
+            $c = $c -replace 'Console\.Clear\(\)\s*;', 'try { Console.Clear(); } catch { }'
+            $c = $c -replace 'Console\.WindowWidth',  '(Console.IsOutputRedirected || Console.IsInputRedirected ? 120 : Console.WindowWidth)'
+            $c = $c -replace 'Console\.WindowHeight', '(Console.IsOutputRedirected || Console.IsInputRedirected ? 30 : Console.WindowHeight)'
+            $c = $c -replace 'Console\.SetCursorPosition\(([^;]*)\)\s*;', 'try { Console.SetCursorPosition($1); } catch { }'
+            if ($c -ne $o) { Set-Content $_.FullName $c; Write-Host "patched $($_.Name)" }
+          }
+          Select-String -Path ctfak/Interface/CTFAK.Cli/*.cs -Pattern 'Console\.(Clear|ReadKey|CursorVisible|SetCursor)'
       - name: build
         shell: pwsh
         run: |
