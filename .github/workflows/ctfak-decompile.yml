@@ -16,7 +16,9 @@ jobs:
     steps:
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: |
+            6.0.x
+            8.0.x
       - name: clone
         shell: pwsh
         run: git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak
