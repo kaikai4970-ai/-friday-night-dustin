@@ -10,12 +10,27 @@ on:
         default: "0"
       exe_url:
         default: "https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe"
-      ctfak_ref:
-        description: "CTFAK branch or tag (empty = default branch)"
-        default: ""
 jobs:
+  refs:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        run: |
+          U=https://github.com/CTFAK/CTFAK2.0
+          heads=$(git ls-remote --heads $U | awk '{print $2}' | sed 's#refs/heads/##' | head -8)
+          tags=$(git ls-remote --tags $U | grep -v '\^{}' | awk '{print $2}' | sed 's#refs/tags/##' | sort -V | tail -3)
+          json=$(printf '%s\n' "" $heads $tags | awk '!seen[$0]++' | jq -R . | jq -sc '{ref: .}')
+          echo "$json"
+          echo "matrix=$json" >> $GITHUB_OUTPUT
+
   run:
+    needs: refs
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.refs.outputs.matrix) }}
     steps:
       - uses: actions/setup-dotnet@v4
         with:
@@ -25,7 +40,7 @@ jobs:
       - name: clone
         shell: pwsh
         run: |
-          $ref = "${{ inputs.ctfak_ref }}"
+          $ref = "${{ matrix.ref }}"
           if ($ref) { git clone --depth 1 --branch $ref https://github.com/CTFAK/CTFAK2.0 ctfak }
           else { git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak }
           git -C ctfak log -1 --oneline
@@ -42,7 +57,6 @@ jobs:
             $c = $c -replace 'Console\.SetCursorPosition\(([^;]*)\)\s*;', 'try { Console.SetCursorPosition($1); } catch { }'
             if ($c -ne $o) { Set-Content $_.FullName $c; Write-Host "patched $($_.Name)" }
           }
-          Select-String -Path ctfak/Interface/CTFAK.Cli/*.cs -Pattern 'Console\.(Clear|ReadKey|CursorVisible|SetCursor)'
       - name: build
         shell: pwsh
         run: |
@@ -69,25 +83,19 @@ jobs:
           Copy-Item $zlib.FullName "$out/zlibwapi.dll" -Force
 
           Invoke-WebRequest "${{ inputs.exe_url || 'https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe' }}" -OutFile "$out/game.exe"
-      - name: inspect game.exe
-        shell: pwsh
-        run: |
-          $f = "$env:OUT/game.exe"
-          Write-Host "size: $((Get-Item $f).Length) bytes"
-          Write-Host "sha256: $((Get-FileHash $f -Algorithm SHA256).Hash)"
-          $bytes = [IO.File]::ReadAllBytes($f)
-          Write-Host ("first 2 bytes (MZ expected): " + [Text.Encoding]::ASCII.GetString($bytes, 0, 2))
-          $s = [Text.Encoding]::Latin1.GetString($bytes)
-          foreach ($sig in "PAMU","PAME","CRUF") { Write-Host "$sig found: $($s.Contains($sig))" }
       - name: run
         shell: pwsh
         run: |
           cd $env:OUT
           "${{ inputs.tool_index || '0' }}" | .\CTFAK.Cli.exe -path game.exe -parameters "" 2>&1 | Tee-Object run.log
+          $code = $LASTEXITCODE
+          "ref='${{ matrix.ref }}' exit=$code" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          "ref='${{ matrix.ref }}' exit=$code" | Out-File -Append run.log
+          exit $code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ctfak-output
+          name: ctfak-output-${{ strategy.job-index }}
           path: |
             ${{ env.OUT }}/Dumps/**
             ${{ env.OUT }}/*.mfa
