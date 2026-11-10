@@ -19,27 +19,33 @@ jobs:
           dotnet-version: |
             6.0.x
             8.0.x
-      - uses: microsoft/setup-msbuild@v2
       - name: clone
         shell: pwsh
         run: git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak
+      - name: patch (console-less CI)
+        shell: pwsh
+        run: |
+          $prog = "ctfak/Interface/CTFAK.Cli/Program.cs"
+          (Get-Content $prog -Raw) -replace 'ASCIIArt\.DrawArt2\(\)\s*;', 'try { ASCIIArt.DrawArt2(); } catch { }' | Set-Content $prog
+
+          $art = "ctfak/Interface/CTFAK.Cli/ASCIIArt.cs"
+          $c = Get-Content $art -Raw
+          $c = $c -replace 'Console\.WindowWidth',  '(Console.IsOutputRedirected || Console.IsInputRedirected ? 120 : Console.WindowWidth)'
+          $c = $c -replace 'Console\.WindowHeight', '(Console.IsOutputRedirected || Console.IsInputRedirected ? 30 : Console.WindowHeight)'
+          $c | Set-Content $art
+
+          Select-String -Path $prog -Pattern 'DrawArt2'
       - name: build
         shell: pwsh
         run: |
           cd ctfak
           dotnet build Interface/CTFAK.Cli/CTFAK.Cli.csproj -c Release -p:EnableWindowsTargeting=true
-          msbuild Core/CTFAK-Native/CTFAK-Native.vcxproj /p:Configuration=Release /p:Platform=x64
           Get-ChildItem Plugins -Filter *.csproj -Recurse | ForEach-Object { dotnet build $_.FullName -c Release -p:EnableWindowsTargeting=true }
       - name: stage
         shell: pwsh
         run: |
           $out = (Get-ChildItem ctfak/Interface/CTFAK.Cli/bin -Recurse -Filter CTFAK.Cli.exe | Select-Object -First 1).DirectoryName
           "OUT=$out" | Out-File -Append $env:GITHUB_ENV
-          New-Item -ItemType Directory -Force "$out/x64" | Out-Null
-          $z = Get-ChildItem $env:USERPROFILE/.nuget/packages/joveler.compression.zlib -Recurse -Filter zlibwapi.dll | Where-Object { $_.FullName -match "win-x64" } | Select-Object -First 1
-          Copy-Item $z.FullName "$out/x64/zlibwapi.dll" -Force
-          $n = Get-ChildItem ctfak -Recurse -Filter CTFAK-Native.dll | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
-          Copy-Item $n.FullName "$out/x64/CTFAK-Native.dll" -Force
           New-Item -ItemType Directory -Force "$out/Plugins" | Out-Null
           Get-ChildItem ctfak/Plugins -Recurse -Include Dumper.dll,CTFAK.Decompiler.dll | Where-Object { $_.FullName -match "Release" } | Copy-Item -Destination "$out/Plugins" -Force
           $t = Get-ChildItem ctfak -Recurse -Filter template.mfa | Select-Object -First 1
@@ -50,7 +56,6 @@ jobs:
         run: |
           cd $env:OUT
           "${{ inputs.tool_index || '0' }}" | .\CTFAK.Cli.exe -path game.exe -parameters "" 2>&1 | Tee-Object run.log
-          "0" | Out-Null
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -59,4 +64,3 @@ jobs:
             ${{ env.OUT }}/Dumps/**
             ${{ env.OUT }}/*.mfa
             ${{ env.OUT }}/run.log
- 
