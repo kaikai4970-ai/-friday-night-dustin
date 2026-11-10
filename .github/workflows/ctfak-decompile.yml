@@ -10,6 +10,9 @@ on:
         default: "0"
       exe_url:
         default: "https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe"
+      ctfak_ref:
+        description: "CTFAK branch or tag (empty = default branch)"
+        default: ""
 jobs:
   run:
     runs-on: windows-latest
@@ -21,11 +24,14 @@ jobs:
             8.0.x
       - name: clone
         shell: pwsh
-        run: git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak
+        run: |
+          $ref = "${{ inputs.ctfak_ref }}"
+          if ($ref) { git clone --depth 1 --branch $ref https://github.com/CTFAK/CTFAK2.0 ctfak }
+          else { git clone --depth 1 https://github.com/CTFAK/CTFAK2.0 ctfak }
+          git -C ctfak log -1 --oneline
       - name: patch (console-less CI)
         shell: pwsh
         run: |
-          # CLI配下の全 .cs でコンソール系の例外を握りつぶす
           Get-ChildItem ctfak/Interface/CTFAK.Cli -Recurse -Filter *.cs | ForEach-Object {
             $c = Get-Content $_.FullName -Raw
             $o = $c
@@ -53,11 +59,8 @@ jobs:
           $t = Get-ChildItem ctfak -Recurse -Filter template.mfa | Select-Object -First 1
           if ($t) { Copy-Item $t.FullName "$out/template.mfa" -Force }
 
-          # zlibwapi.dll (Joveler.Compression.ZLib のネイティブDLL) を x64\ に配置
           $searchRoots = @("ctfak", "$env:USERPROFILE\.nuget\packages\joveler.compression.zlib") | Where-Object { Test-Path $_ }
           $zlibs = Get-ChildItem $searchRoots -Recurse -Filter zlibwapi.dll -ErrorAction SilentlyContinue
-          Write-Host "Found zlibwapi.dll candidates:"
-          $zlibs | ForEach-Object { Write-Host "  $($_.FullName)" }
           $zlib = $zlibs | Where-Object { $_.FullName -match 'win-x64|[\\/]x64[\\/]' } | Select-Object -First 1
           if (-not $zlib) { $zlib = $zlibs | Select-Object -First 1 }
           if (-not $zlib) { throw "zlibwapi.dll not found" }
@@ -66,6 +69,16 @@ jobs:
           Copy-Item $zlib.FullName "$out/zlibwapi.dll" -Force
 
           Invoke-WebRequest "${{ inputs.exe_url || 'https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe' }}" -OutFile "$out/game.exe"
+      - name: inspect game.exe
+        shell: pwsh
+        run: |
+          $f = "$env:OUT/game.exe"
+          Write-Host "size: $((Get-Item $f).Length) bytes"
+          Write-Host "sha256: $((Get-FileHash $f -Algorithm SHA256).Hash)"
+          $bytes = [IO.File]::ReadAllBytes($f)
+          Write-Host ("first 2 bytes (MZ expected): " + [Text.Encoding]::ASCII.GetString($bytes, 0, 2))
+          $s = [Text.Encoding]::Latin1.GetString($bytes)
+          foreach ($sig in "PAMU","PAME","CRUF") { Write-Host "$sig found: $($s.Contains($sig))" }
       - name: run
         shell: pwsh
         run: |
