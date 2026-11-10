@@ -1,5 +1,8 @@
 name: ctfak-decompile
 on:
+  push:
+    paths:
+      - ".github/workflows/ctfak-decompile.yml"
   workflow_dispatch:
     inputs:
       tool_index:
@@ -32,12 +35,12 @@ jobs:
           Get-ChildItem ctfak/Plugins -Recurse -Include Dumper.dll,CTFAK.Decompiler.dll | Where-Object { $_.FullName -match "Release" } | Copy-Item -Destination "$out/Plugins" -Force
           $t = Get-ChildItem ctfak -Recurse -Filter template.mfa | Select-Object -First 1
           if ($t) { Copy-Item $t.FullName "$out/template.mfa" -Force }
-          Invoke-WebRequest "${{ inputs.exe_url }}" -OutFile "$out/game.exe"
+          Invoke-WebRequest "${{ inputs.exe_url || 'https://github.com/kaikai4970-ai/-friday-night-dustin/releases/download/dustin/dtge-v0.1.4.exe' }}" -OutFile "$out/game.exe"
       - name: run
         shell: pwsh
         run: |
           cd $env:OUT
-          "${{ inputs.tool_index }}" | .\CTFAK.Cli.exe -path game.exe -parameters "" 2>&1 | Tee-Object run.log
+          "${{ inputs.tool_index || '0' }}" | .\CTFAK.Cli.exe -path game.exe -parameters "" 2>&1 | Tee-Object run.log
           "0" | Out-Null
       - uses: actions/upload-artifact@v4
         if: always()
