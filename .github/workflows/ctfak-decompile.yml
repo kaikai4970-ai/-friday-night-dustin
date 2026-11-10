@@ -37,16 +37,20 @@ jobs:
 
           print("overlay head:", d[end:end + 64].hex(" "))
 
-          p = d.find(b"PAME")
-          if p >= 0:
-              print("PAME head:", d[p:p + 32].hex(" "))
-              q = p + 12
-              print("--- chunk walk (best effort) ---")
-              for _ in range(40):
-                  if q + 8 > len(d): break
-                  cid, flag, size = struct.unpack_from("<HHi", d, q)
-                  print(hex(q), "id", hex(cid), "flag", flag, "size", size)
-                  if size < 0 or q + 8 + size > len(d):
-                      print("  ^ ここで構造が破綻")
-                      break
-                  q += 8 + size
+          for base in [m.start() for m in re.finditer(b"PAMU", d)]:
+              print("=== PAMU at", hex(base), "===")
+              print("head:", d[base:base + 48].hex(" "))
+              for skip in (4, 8, 12, 16, 20, 24):
+                  q = base + skip
+                  ok = 0
+                  for _ in range(30):
+                      if q + 8 > len(d): break
+                      cid, flag, size = struct.unpack_from("<HHi", d, q)
+                      if size < 0 or q + 8 + size > len(d): break
+                      ok += 1
+                      q += 8 + size
+                  print("skip", skip, "-> chunks parsed:", ok)
+
+          print("tail:", d[-32:].hex(" "))
+          for m in list(re.finditer(rb"[ -~]{6,}\.(dll|ccn|dat)", d[end:end + 4000000]))[:30]:
+              print("str:", m.group().decode(errors="ignore"))
